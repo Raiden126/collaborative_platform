@@ -1,0 +1,168 @@
+// Collaborative Workflow Builder — data model
+// Backbone for RBAC, workflows, versioning, event sourcing and activity timeline.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Identity & access
+// ---------------------------------------------------------------------------
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  name      String
+  password  String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  roles         Role[]         @relation("UserRoles")
+  refreshTokens RefreshToken[]
+  workflows     Workflow[]     @relation("WorkflowOwner")
+  activities    Activity[]
+  events        WorkflowEvent[]
+}
+
+model Role {
+  id          Int          @id @default(autoincrement())
+  name        String       @unique
+  description String?
+  users       User[]       @relation("UserRoles")
+  permissions Permission[] @relation("RolePermissions")
+}
+
+model Permission {
+  id          Int     @id @default(autoincrement())
+  // e.g. "workflow.create", "workflow.publish"
+  key         String  @unique
+  description String?
+  roles       Role[]  @relation("RolePermissions")
+}
+
+// Rotating refresh tokens (hashed). One row per issued refresh token.
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Workflows
+// ---------------------------------------------------------------------------
+
+enum WorkflowStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model Workflow {
+  id          Int            @id @default(autoincrement())
+  name        String
+  description String?
+  status      WorkflowStatus @default(DRAFT)
+  // The canonical graph snapshot: { nodes: [], connections: [] }
+  graph       Json           @default("{\"nodes\":[],\"connections\":[]}")
+  version     Int            @default(1)
+  ownerId     Int
+  owner       User           @relation("WorkflowOwner", fields: [ownerId], references: [id])
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  versions   WorkflowVersion[]
+  events     WorkflowEvent[]
+  activities Activity[]
+  executions Execution[]
+
+  @@index([ownerId])
+  @@index([status])
+}
+
+// Immutable point-in-time snapshots for versioning / diff / restore.
+model WorkflowVersion {
+  id         Int      @id @default(autoincrement())
+  workflowId Int
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  version    Int
+  name       String
+  graph      Json
+  message    String?
+  createdById Int?
+  createdAt  DateTime @default(now())
+
+  @@unique([workflowId, version])
+  @@index([workflowId])
+}
+
+// ---------------------------------------------------------------------------
+// Event sourcing — every mutation is an append-only event.
+// Current workflow state is reproducible by folding events.
+// ---------------------------------------------------------------------------
+
+model WorkflowEvent {
+  id         Int      @id @default(autoincrement())
+  workflowId Int
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  // Monotonic per-workflow sequence for ordering / replay.
+  seq        Int
+  type       String   // e.g. NODE_CREATED, NODE_MOVED, CONNECTION_ADDED
+  payload    Json
+  userId     Int?
+  user       User?    @relation(fields: [userId], references: [id])
+  createdAt  DateTime @default(now())
+
+  @@unique([workflowId, seq])
+  @@index([workflowId])
+  @@index([type])
+}
+
+// ---------------------------------------------------------------------------
+// Activity timeline (human-readable feed) + execution logs (simulator/debugger)
+// ---------------------------------------------------------------------------
+
+model Activity {
+  id         Int      @id @default(autoincrement())
+  workflowId Int?
+  workflow   Workflow? @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  userId     Int?
+  user       User?    @relation(fields: [userId], references: [id])
+  type       String   // WORKFLOW_CREATED, NODE_ADDED, ...
+  message    String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([workflowId])
+  @@index([userId])
+}
+
+enum ExecutionStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+model Execution {
+  id         Int             @id @default(autoincrement())
+  workflowId Int
+  workflow   Workflow        @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  status     ExecutionStatus @default(RUNNING)
+  // Per-node step results: [{ nodeId, status, durationMs, output, error }]
+  steps      Json            @default("[]")
+  startedAt  DateTime        @default(now())
+  finishedAt DateTime?
+
+  @@index([workflowId])
+}

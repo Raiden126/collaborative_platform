@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cwb-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cwb
+      POSTGRES_PASSWORD: cwb
+      POSTGRES_DB: cwb
+    ports:
+      - '5432:5432'
+    volumes:
+      - cwb-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U cwb']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  cwb-pgdata:

@@ -66,8 +66,10 @@ export const eventsApi = {
 };
 
 export const executionsApi = {
-  simulate: (id: number) =>
-    http.post<SimulationResult>(`/workflows/${id}/executions/simulate`).then((r) => r.data),
+  simulate: (id: number, payload?: { mode?: 'simulate' | 'live'; trigger?: Record<string, unknown> }) =>
+    http
+      .post<SimulationResult>(`/workflows/${id}/executions/simulate`, payload ?? {})
+      .then((r) => r.data),
   list: (id: number) => http.get(`/workflows/${id}/executions`).then((r) => r.data),
 };
 

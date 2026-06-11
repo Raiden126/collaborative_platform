@@ -46,7 +46,27 @@ const summary = computed(() =>
       <span class="label">{{ def?.label ?? type }}</span>
     </div>
     <div v-if="summary" class="summary muted">{{ summary }}</div>
-    <Handle type="source" :position="Position.Bottom" />
+
+    <!-- Named branch handles (e.g. condition true/false), else a single source. -->
+    <template v-if="def?.outputs?.length">
+      <div class="branches">
+        <span
+          v-for="(out, i) in def.outputs"
+          :key="out.id"
+          class="branch-label"
+          :style="{ color: out.color }"
+        >
+          {{ out.label }}
+          <Handle
+            :id="out.id"
+            type="source"
+            :position="Position.Bottom"
+            :style="{ left: `${((i + 1) / (def.outputs.length + 1)) * 100}%` }"
+          />
+        </span>
+      </div>
+    </template>
+    <Handle v-else type="source" :position="Position.Bottom" />
   </div>
 </template>
 
@@ -86,5 +106,15 @@ const summary = computed(() =>
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.branches {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 0.4rem;
+  font-size: 0.65rem;
+}
+.branch-label {
+  position: relative;
+  font-weight: 600;
 }
 </style>

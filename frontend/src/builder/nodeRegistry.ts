@@ -67,8 +67,18 @@ registerNodeType({
   color: '#f59e0b',
   component: async(() => import('./nodes/ConditionNode.vue')),
   defaultData: { expression: '' },
+  // Branches the engine follows based on the evaluated result.
+  outputs: [
+    { id: 'true', label: 'true', color: '#10b981' },
+    { id: 'false', label: 'false', color: '#ef4444' },
+  ],
   form: [
-    { name: 'expression', label: 'Expression', fieldType: 'text', placeholder: 'amount > 100' },
+    {
+      name: 'expression',
+      label: 'Expression',
+      fieldType: 'text',
+      placeholder: '{{trigger.amount}} > 100',
+    },
   ],
 });
 
@@ -101,7 +111,7 @@ registerNodeType({
   icon: '🪝',
   color: '#14b8a6',
   component: async(() => import('./nodes/WebhookNode.vue')),
-  defaultData: { url: '', method: 'POST' },
+  defaultData: { url: '', method: 'POST', body: '' },
   form: [
     { name: 'url', label: 'URL', fieldType: 'text', placeholder: 'https://…', required: true },
     {
@@ -110,6 +120,12 @@ registerNodeType({
       fieldType: 'select',
       options: ['GET', 'POST', 'PUT', 'DELETE'].map((v) => ({ label: v, value: v })),
       default: 'POST',
+    },
+    {
+      name: 'body',
+      label: 'Body (JSON, supports {{refs}})',
+      fieldType: 'textarea',
+      placeholder: '{ "amount": {{trigger.amount}} }',
     },
   ],
 });

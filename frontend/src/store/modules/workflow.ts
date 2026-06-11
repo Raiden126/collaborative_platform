@@ -2,6 +2,7 @@ import type { ActionContext, Module } from 'vuex';
 import {
   applyEvent,
   emptyGraph,
+  makeEvent,
   type AnyWorkflowEvent,
   type Workflow,
   type WorkflowGraph,
@@ -142,20 +143,22 @@ export const workflow: Module<WorkflowState, RootState> = {
      * Snapshots current graph for undo, folds the event via the shared reducer,
      * writes the projection back, then routes the event to realtime (or offline queue).
      */
-    commitEvent({ commit, dispatch, getters, rootState }: Ctx, raw: AnyWorkflowEvent) {
+    async commitEvent({ commit, dispatch, getters, rootState }: Ctx, raw: AnyWorkflowEvent) {
       const before = getters.currentGraph as WorkflowGraph;
       const event: AnyWorkflowEvent = { clientId: uid('evt'), timestamp: Date.now(), ...raw };
       const after = applyEvent(before, event);
+      // 1) Apply optimistically so the canvas feels instant.
       commit('pushHistory', before);
       dispatch('setGraph', after);
 
       const id = rootState.workflow.activeId;
       if (id == null) return;
-      if (rootState.realtime.connected) {
-        dispatch('realtime/broadcast', { workflowId: id, events: [event] }, { root: true });
-      } else {
-        dispatch('offline/enqueue', { workflowId: id, event }, { root: true });
-      }
+      // 2) Durability: write to the outbox, then sync to the server (socket-with-ack
+      //    when connected, HTTP otherwise). The SERVER is authoritative — it folds
+      //    the event with the shared reducer, persists it + the graph snapshot, and
+      //    broadcasts to collaborators. We never PUT the whole graph for an edit.
+      await dispatch('offline/enqueue', { workflowId: id, event }, { root: true });
+      dispatch('offline/sync', undefined, { root: true });
     },
 
     // Apply events received from collaborators / server — not added to local undo stack.
@@ -186,10 +189,19 @@ export const workflow: Module<WorkflowState, RootState> = {
       dispatch('persistSnapshot', next);
     },
 
-    // Undo/redo replace the whole graph; persist as an authoritative snapshot.
-    async persistSnapshot({ state }: Ctx, graph: WorkflowGraph) {
-      if (state.activeId == null) return;
-      await workflowsApi.update(state.activeId, { graph });
+    // Undo/redo replace the whole graph — persist it through the SAME event
+    // pipeline (a GRAPH_REPLACED event) so it's recorded in the event log and
+    // broadcast to collaborators, rather than silently PUT-ing the graph.
+    async persistSnapshot({ dispatch, rootState }: Ctx, graph: WorkflowGraph) {
+      const id = rootState.workflow.activeId;
+      if (id == null) return;
+      const event = makeEvent(
+        'GRAPH_REPLACED',
+        { graph },
+        { clientId: uid('evt'), timestamp: Date.now() },
+      );
+      await dispatch('offline/enqueue', { workflowId: id, event }, { root: true });
+      dispatch('offline/sync', undefined, { root: true });
     },
   },
 };

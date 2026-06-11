@@ -54,11 +54,11 @@ export const realtime: Module<RealtimeState, RootState> = {
 
       socket.on('connect', () => {
         commit('setConnected', true);
-        // Re-join the active room and flush anything buffered offline.
+        // Re-join the active room and drain anything buffered in the outbox.
         if (rootState.workflow.activeId != null) {
           dispatch('join', rootState.workflow.activeId);
         }
-        dispatch('offline/flush', undefined, { root: true });
+        dispatch('offline/sync', undefined, { root: true });
       });
       socket.on('disconnect', () => {
         commit('setConnected', false);
@@ -85,8 +85,23 @@ export const realtime: Module<RealtimeState, RootState> = {
     leave(_ctx: Ctx, workflowId: number) {
       getSocket()?.emit('workflow:leave', { workflowId });
     },
-    broadcast(_ctx: Ctx, payload: { workflowId: number; events: AnyWorkflowEvent[] }) {
-      getSocket()?.emit('workflow:event', payload);
+    /**
+     * Send events to the server over the socket and AWAIT the server's ack.
+     * The gateway persists them (via the shared reducer) and assigns the
+     * authoritative seq before acking — so a resolved promise means "durably
+     * stored". Throws on disconnect/timeout/rejection so the caller can retry.
+     */
+    async sendEvents(
+      _ctx: Ctx,
+      payload: { workflowId: number; events: AnyWorkflowEvent[] },
+    ): Promise<{ ok: boolean; version?: number }> {
+      const socket = getSocket();
+      if (!socket || !socket.connected) throw new Error('socket disconnected');
+      const ack = (await socket
+        .timeout(8000)
+        .emitWithAck('workflow:event', payload)) as { ok: boolean; version?: number };
+      if (!ack?.ok) throw new Error('server rejected events');
+      return ack;
     },
     moveCursor(_ctx: Ctx, payload: { workflowId: number; position: XYPosition }) {
       getSocket()?.emit('cursor:move', payload);

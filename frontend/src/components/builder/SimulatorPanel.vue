@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useStore } from '@/store';
+import type { ExecutionStep } from '@/api';
 
 const store = useStore();
 const dbg = computed(() => store.state.debugger);
@@ -8,9 +9,35 @@ const steps = computed(() => dbg.value.steps);
 const timeline = computed(() => dbg.value.timeline);
 const totalMs = computed(() => store.getters['debugger/totalDurationMs']);
 
+const expanded = ref(new Set<number>());
+function toggle(i: number) {
+  const next = new Set(expanded.value);
+  next.has(i) ? next.delete(i) : next.add(i);
+  expanded.value = next;
+}
+const hasOutput = (s: ExecutionStep) => s.output !== undefined && s.output !== null;
+const format = (v: unknown) => JSON.stringify(v, null, 2);
+
+const triggerJson = ref('');
+const triggerError = ref('');
+// Shown as a hint; kept in script so Vue's template compiler doesn't parse the braces.
+const triggerSyntax = '{{trigger.x}}';
+
 onMounted(() => store.dispatch('debugger/loadTimeline'));
 
-const simulate = () => store.dispatch('debugger/simulate');
+function run() {
+  triggerError.value = '';
+  let trigger: Record<string, unknown> | undefined;
+  if (triggerJson.value.trim()) {
+    try {
+      trigger = JSON.parse(triggerJson.value);
+    } catch {
+      triggerError.value = 'Invalid JSON';
+      return;
+    }
+  }
+  store.dispatch('debugger/simulate', trigger);
+}
 const stepForward = () => store.dispatch('debugger/stepForward');
 const stepBack = () => store.dispatch('debugger/stepBack');
 const reset = () => store.dispatch('debugger/reset');
@@ -22,8 +49,14 @@ const jumpTo = (seq: number) => store.dispatch('debugger/jumpTo', seq);
     <div class="row">
       <h4>Simulator</h4>
       <div class="spacer" />
-      <button v-can="'workflow.execute'" class="btn-primary" @click="simulate">▶ Run</button>
+      <button v-can="'workflow.execute'" class="btn-primary" @click="run">▶ Run</button>
     </div>
+
+    <label class="trigger">
+      <span class="muted">Trigger payload (JSON) — referenced as <code>{{ triggerSyntax }}</code></span>
+      <textarea v-model="triggerJson" rows="2" placeholder='{ "amount": 150 }' />
+      <span v-if="triggerError" class="err">{{ triggerError }}</span>
+    </label>
 
     <div class="row controls" v-if="steps.length">
       <button @click="stepBack">⏮</button>
@@ -34,14 +67,20 @@ const jumpTo = (seq: number) => store.dispatch('debugger/jumpTo', seq);
       <span class="muted">{{ totalMs }}ms</span>
     </div>
 
-    <!-- Execution log / debugger (features 10 & 11) -->
+    <!-- Execution log / debugger: status, timing, errors, API responses (features 10 & 11) -->
     <ul class="steps">
       <li v-for="(s, i) in steps" :key="s.nodeId + i" :class="s.status">
-        <span class="ico">{{ s.status === 'success' ? '✓' : s.status === 'failed' ? '✕' : '–' }}</span>
-        <span class="t">{{ s.type }}</span>
-        <span class="spacer" />
-        <span class="muted">{{ s.durationMs }}ms</span>
+        <div class="step-row" @click="toggle(i)">
+          <span class="ico">{{
+            s.status === 'success' ? '✓' : s.status === 'failed' ? '✕' : '–'
+          }}</span>
+          <span class="t">{{ s.type }}</span>
+          <span class="spacer" />
+          <span class="muted">{{ s.durationMs }}ms</span>
+          <span v-if="hasOutput(s)" class="chev">{{ expanded.has(i) ? '▾' : '▸' }}</span>
+        </div>
         <div v-if="s.error" class="err">{{ s.error }}</div>
+        <pre v-if="expanded.has(i) && hasOutput(s)" class="output">{{ format(s.output) }}</pre>
       </li>
     </ul>
 
@@ -65,6 +104,18 @@ const jumpTo = (seq: number) => store.dispatch('debugger/jumpTo', seq);
 .controls {
   margin: 0.5rem 0;
 }
+.trigger {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.5rem 0;
+  font-size: 0.75rem;
+}
+.trigger code {
+  background: var(--bg);
+  padding: 0 3px;
+  border-radius: 3px;
+}
 .steps,
 .timeline {
   list-style: none;
@@ -75,13 +126,18 @@ const jumpTo = (seq: number) => store.dispatch('debugger/jumpTo', seq);
   gap: 0.25rem;
 }
 .steps li {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
   padding: 0.3rem 0.5rem;
   background: var(--surface);
   border-radius: 6px;
-  flex-wrap: wrap;
+}
+.step-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+}
+.chev {
+  font-size: 0.7rem;
 }
 .steps li.failed {
   border-left: 3px solid var(--danger);
@@ -93,9 +149,20 @@ const jumpTo = (seq: number) => store.dispatch('debugger/jumpTo', seq);
   opacity: 0.6;
 }
 .err {
-  flex-basis: 100%;
   color: var(--danger);
   font-size: 0.75rem;
+  margin-top: 0.25rem;
+}
+.output {
+  margin: 0.4rem 0 0;
+  padding: 0.4rem;
+  background: var(--bg);
+  border-radius: 4px;
+  font-size: 0.7rem;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .link {
   background: none;

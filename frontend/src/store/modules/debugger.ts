@@ -39,11 +39,11 @@ export const debuggerModule: Module<DebuggerState, RootState> = {
     },
   },
   actions: {
-    async simulate({ commit, rootState }: Ctx) {
+    async simulate({ commit, rootState }: Ctx, trigger?: Record<string, unknown>) {
       const id = rootState.workflow.activeId;
       if (id == null) return;
       commit('setStatus', 'running');
-      const res = await executionsApi.simulate(id);
+      const res = await executionsApi.simulate(id, { trigger });
       commit('setSteps', res.steps);
       commit('setStatus', res.status);
       return res;

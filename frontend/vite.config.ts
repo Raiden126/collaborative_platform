@@ -13,7 +13,9 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': { target: 'http://localhost:3000', changeOrigin: true },
-      '/realtime': { target: 'http://localhost:3000', ws: true, changeOrigin: true },
+      // Socket.IO uses the /socket.io path (the namespace is `/realtime`).
+      // This MUST be /socket.io, not /realtime, or the WebSocket never connects.
+      '/socket.io': { target: 'http://localhost:3000', ws: true, changeOrigin: true },
     },
   },
   test: {

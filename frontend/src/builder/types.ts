@@ -37,4 +37,10 @@ export interface NodeDefinition {
   form: FormField[];
   /** true for the entry node (no inbound handle). */
   isTrigger?: boolean;
+  /**
+   * Named outbound branches (rendered as separate source handles). Used by the
+   * condition node for true/false branching; the handle id is sent as the
+   * connection's `sourceHandle` and matched by the backend engine.
+   */
+  outputs?: { id: string; label: string; color?: string }[];
 }

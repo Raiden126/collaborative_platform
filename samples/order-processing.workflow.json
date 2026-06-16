@@ -1,0 +1,40 @@
+{
+  "name": "Order Processing",
+  "nodes": [
+    { "id": "n1", "type": "trigger", "position": { "x": 120, "y": 80 }, "data": { "event": "manual" } },
+    {
+      "id": "n2",
+      "type": "condition",
+      "position": { "x": 120, "y": 220 },
+      "data": { "expression": "{{trigger.amount}} > 100" }
+    },
+    {
+      "id": "n3",
+      "type": "email",
+      "position": { "x": 340, "y": 360 },
+      "data": {
+        "to": "{{trigger.email}}",
+        "subject": "Thanks for your big order!",
+        "body": "We received your order of {{trigger.amount}}."
+      }
+    },
+    {
+      "id": "n4",
+      "type": "sms",
+      "position": { "x": 0, "y": 360 },
+      "data": { "to": "+15551234567", "message": "Order received" }
+    },
+    {
+      "id": "n5",
+      "type": "webhook",
+      "position": { "x": 340, "y": 500 },
+      "data": { "url": "https://httpbin.org/post", "method": "POST", "body": "{ \"amount\": {{trigger.amount}} }" }
+    }
+  ],
+  "connections": [
+    { "source": "n1", "target": "n2" },
+    { "source": "n2", "target": "n3", "sourceHandle": "true" },
+    { "source": "n2", "target": "n4", "sourceHandle": "false" },
+    { "source": "n3", "target": "n5" }
+  ]
+}

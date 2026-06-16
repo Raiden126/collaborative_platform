@@ -99,6 +99,15 @@ Every change (add, move, edit, connect, delete) is undoable:
 
 History keeps your last 100 actions.
 
+### Importing & exporting (JSON)
+The builder toolbar has **⬆ Import** and **⬇ Export**:
+- **Import** — upload a `.json` file and its nodes (and connections) are added straight
+  onto the canvas. Accepts a full graph `{ "nodes": [...], "connections": [...] }`, a plain
+  array of nodes, or a single node. Unknown node types are skipped (you'll get a notice),
+  ids are regenerated so imports never clash, and each imported node is persisted like a
+  normal edit. A ready-to-try example lives at `samples/order-processing.workflow.json`.
+- **Export** — downloads the current workflow as JSON (round-trips with Import).
+
 ### Publishing
 When a workflow is ready, click **Publish** in the toolbar (Admins only) to mark it live.
 
@@ -118,6 +127,12 @@ You'll see:
 
 This doubles as a **debugger**: failed and skipped nodes are called out, with error text
 and timing, so you can see exactly where a run breaks.
+
+Nodes run for real: **Webhook** makes an actual HTTP request, **Condition** follows the
+matching true/false branch, **Email** sends over SMTP and **SMS** via Twilio. Email and
+SMS use a safe mock (validates + logs, no real send) until you add credentials to
+`backend/.env` (`SMTP_*` / `EMAIL_FROM`, `TWILIO_*`) — then the very same workflow delivers
+for real with no code change.
 
 ---
 

@@ -7,7 +7,9 @@ import { MiniMap } from '@vue-flow/minimap';
 import { makeEvent, type WorkflowConnection, type WorkflowNode } from '@cwb/shared';
 import { useStore } from '@/store';
 import { getNodeDefinition, nodeTypeComponents } from '@/builder/nodeRegistry';
+import { parseWorkflowImport } from '@/builder/importGraph';
 import { uid } from '@/utils/id';
+import type { WorkflowGraph } from '@cwb/shared';
 import NodePalette from '@/components/builder/NodePalette.vue';
 import NodeInspector from '@/components/builder/NodeInspector.vue';
 import PresenceBar from '@/components/builder/PresenceBar.vue';
@@ -143,6 +145,62 @@ function onKey(e: KeyboardEvent) {
 async function publish() {
   await store.dispatch('workflow/publish', workflowId.value);
 }
+
+// --- Import / export ---
+const fileInput = ref<HTMLInputElement | null>(null);
+function pickFile() {
+  fileInput.value?.click();
+}
+
+async function onImportFile(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = ''; // allow re-importing the same file
+  if (!file) return;
+  try {
+    const raw = JSON.parse(await file.text());
+    const { nodes, connections, skipped } = parseWorkflowImport(raw, {
+      startIndex: store.getters['nodes/count'] as number,
+    });
+    if (!nodes.length) {
+      throw new Error(skipped.length ? `No known node types (skipped: ${skipped.join(', ')})` : 'No nodes found');
+    }
+    // Drop each node/connection through the normal event pipeline so the import
+    // is persisted + broadcast to collaborators like any other edit.
+    for (const node of nodes) {
+      await store.dispatch('workflow/commitEvent', makeEvent('NODE_CREATED', { node }));
+    }
+    for (const connection of connections) {
+      await store.dispatch('workflow/commitEvent', makeEvent('CONNECTION_ADDED', { connection }));
+    }
+    store.dispatch('notifications/push', {
+      type: 'IMPORTED',
+      title: 'Imported',
+      message:
+        `Added ${nodes.length} node(s)` +
+        (connections.length ? `, ${connections.length} connection(s)` : '') +
+        (skipped.length ? ` · skipped ${skipped.length} unknown` : ''),
+    });
+  } catch (err) {
+    store.dispatch('notifications/push', {
+      type: 'ERROR',
+      title: 'Import failed',
+      message: (err as Error).message || 'Invalid JSON file',
+    });
+  }
+}
+
+function exportJson() {
+  const graph = store.getters['workflow/currentGraph'] as WorkflowGraph;
+  const payload = { name: meta.value?.name, ...graph };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${(meta.value?.name ?? 'workflow').replace(/\s+/g, '-').toLowerCase()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 </script>
 
 <template>
@@ -154,6 +212,17 @@ async function publish() {
       <div class="spacer" />
       <button :disabled="!canUndo" @click="store.dispatch('workflow/undo')" title="Ctrl+Z">↶ Undo</button>
       <button :disabled="!canRedo" @click="store.dispatch('workflow/redo')" title="Ctrl+Y">Redo ↷</button>
+      <button v-can="'workflow.edit'" title="Import nodes from a JSON file" @click="pickFile">
+        ⬆ Import
+      </button>
+      <button title="Export this workflow as JSON" @click="exportJson">⬇ Export</button>
+      <input
+        ref="fileInput"
+        type="file"
+        accept="application/json,.json"
+        class="hidden-file"
+        @change="onImportFile"
+      />
       <PresenceBar />
       <button v-can="'workflow.publish'" class="btn-primary" @click="publish">Publish</button>
     </header>
@@ -209,6 +278,9 @@ async function publish() {
   gap: 0.6rem;
   padding: 0.6rem 1rem;
   border-bottom: 1px solid var(--border);
+}
+.hidden-file {
+  display: none;
 }
 .stage {
   flex: 1;

@@ -8,13 +8,9 @@ import {
   TriggerExecutor,
   WebhookExecutor,
 } from './executors';
+import { SlackExecutor } from './slack.executor';
 import { NodeExecutor } from './types';
 
-/**
- * Registry mapping node `type` → executor. This is the backend counterpart of the
- * frontend node registry and the seam for the plugin architecture (feature 20):
- * external code can `register()` new executors without touching the engine.
- */
 @Injectable()
 export class NodeExecutorRegistry {
   private readonly executors = new Map<string, NodeExecutor>();
@@ -27,8 +23,11 @@ export class NodeExecutorRegistry {
     webhook: WebhookExecutor,
     email: EmailExecutor,
     sms: SmsExecutor,
+    slack: SlackExecutor,
   ) {
-    [trigger, condition, action, delay, webhook, email, sms].forEach((e) => this.register(e));
+    [trigger, condition, action, delay, webhook, email, sms, slack].forEach((e) =>
+      this.register(e),
+    );
   }
 
   register(executor: NodeExecutor) {

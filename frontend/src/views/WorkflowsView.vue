@@ -62,13 +62,13 @@ async function remove(id: number) {
         <div class="row actions">
           <button @click="router.push(`/workflows/${w.id}`)">Open</button>
           <button v-can="'workflow.duplicate'" @click="duplicate(w.id)">Duplicate</button>
-          <button
+          <!-- <button
             v-if="can('workflow.publish') && w.status !== 'PUBLISHED'"
             class="btn-primary"
             @click="publish(w.id)"
           >
             Publish
-          </button>
+          </button> -->
           <div class="spacer" />
           <button v-can="'workflow.delete'" class="btn-danger" @click="remove(w.id)">Delete</button>
         </div>
@@ -86,7 +86,7 @@ async function remove(id: number) {
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 1rem;
+  gap: 2rem;
   margin-top: 1rem;
 }
 .item {

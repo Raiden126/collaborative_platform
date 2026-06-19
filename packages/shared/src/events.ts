@@ -1,4 +1,10 @@
-import { WorkflowConnection, WorkflowGraph, WorkflowNode, XYPosition, emptyGraph } from './workflow';
+import {
+  WorkflowConnection,
+  WorkflowGraph,
+  WorkflowNode,
+  XYPosition,
+  emptyGraph,
+} from './workflow';
 
 /**
  * Event-sourced workflow mutations. The current graph is always reproducible by
@@ -84,6 +90,7 @@ export function applyEvent(graph: WorkflowGraph, event: AnyWorkflowEvent): Workf
     }
     case 'CONNECTION_REMOVED': {
       const { connectionId } = event.payload as WorkflowEventPayloadMap['CONNECTION_REMOVED'];
+
       return {
         ...graph,
         connections: graph.connections.filter((c) => c.id !== connectionId),
@@ -102,7 +109,10 @@ export function applyEvent(graph: WorkflowGraph, event: AnyWorkflowEvent): Workf
 }
 
 /** Fold an ordered event stream into a materialized graph. */
-export function replay(events: AnyWorkflowEvent[], initial: WorkflowGraph = emptyGraph()): WorkflowGraph {
+export function replay(
+  events: AnyWorkflowEvent[],
+  initial: WorkflowGraph = emptyGraph(),
+): WorkflowGraph {
   return events.reduce((g, e) => applyEvent(g, e), initial);
 }
 

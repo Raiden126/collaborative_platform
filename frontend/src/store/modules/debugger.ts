@@ -40,8 +40,13 @@ export const debuggerModule: Module<DebuggerState, RootState> = {
   },
   actions: {
     async simulate({ commit, rootState }: Ctx, trigger?: Record<string, unknown>) {
+      console.log('activeId snapshot:', JSON.parse(JSON.stringify(rootState.workflow.activeId)));
+      console.log('activeId:', rootState.workflow.activeId);
       const id = rootState.workflow.activeId;
-      if (id == null) return;
+      if (!id) {
+        console.warn('No active workflow — simulate aborted');
+        return;
+      }
       commit('setStatus', 'running');
       const res = await executionsApi.simulate(id, { trigger });
       commit('setSteps', res.steps);

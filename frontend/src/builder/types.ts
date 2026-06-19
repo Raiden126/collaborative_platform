@@ -29,6 +29,7 @@ export interface NodeDefinition {
   category: 'Trigger' | 'Logic' | 'Action' | 'Integration';
   icon: string;
   color: string;
+  description?: string;
   /** Async-loaded canvas component — never imported via a switch statement. */
   component: Component | (() => Promise<unknown>);
   /** Default `data` for a freshly dropped node. */

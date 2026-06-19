@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useStore } from '@/store';
 import type { ExecutionStep } from '@/api';
 
@@ -8,6 +8,9 @@ const dbg = computed(() => store.state.debugger);
 const steps = computed(() => dbg.value.steps);
 const timeline = computed(() => dbg.value.timeline);
 const totalMs = computed(() => store.getters['debugger/totalDurationMs']);
+
+// Read activeId directly so the Run button is disabled until open() completes.
+const activeId = computed(() => store.state.workflow.activeId);
 
 const expanded = ref(new Set<number>());
 function toggle(i: number) {
@@ -20,10 +23,17 @@ const format = (v: unknown) => JSON.stringify(v, null, 2);
 
 const triggerJson = ref('');
 const triggerError = ref('');
-// Shown as a hint; kept in script so Vue's template compiler doesn't parse the braces.
 const triggerSyntax = '{{trigger.x}}';
 
-onMounted(() => store.dispatch('debugger/loadTimeline'));
+// Load timeline when this panel mounts, AND whenever activeId becomes available
+// (handles the race where panel mounts before workflow/open completes).
+async function tryLoadTimeline() {
+  if (store.state.workflow.activeId != null) {
+    await store.dispatch('debugger/loadTimeline');
+  }
+}
+onMounted(tryLoadTimeline);
+watch(activeId, (id) => { if (id != null) store.dispatch('debugger/loadTimeline'); });
 
 function run() {
   triggerError.value = '';
@@ -49,7 +59,15 @@ const jumpTo = (seq: number) => store.dispatch('debugger/jumpTo', seq);
     <div class="row">
       <h4>Simulator</h4>
       <div class="spacer" />
-      <button v-can="'workflow.execute'" class="btn-primary" @click="run">▶ Run</button>
+      <!-- Disabled until workflow/open() sets activeId -->
+      <button
+        v-can="'workflow.execute'"
+        class="btn-primary"
+        :disabled="!activeId || dbg.status === 'running'"
+        @click="run"
+      >
+        {{ dbg.status === 'running' ? '⏳ Running…' : '▶ Run' }}
+      </button>
     </div>
 
     <label class="trigger">
@@ -67,7 +85,6 @@ const jumpTo = (seq: number) => store.dispatch('debugger/jumpTo', seq);
       <span class="muted">{{ totalMs }}ms</span>
     </div>
 
-    <!-- Execution log / debugger: status, timing, errors, API responses (features 10 & 11) -->
     <ul class="steps">
       <li v-for="(s, i) in steps" :key="s.nodeId + i" :class="s.status">
         <div class="step-row" @click="toggle(i)">
@@ -84,7 +101,6 @@ const jumpTo = (seq: number) => store.dispatch('debugger/jumpTo', seq);
       </li>
     </ul>
 
-    <!-- Time-travel debugging (feature 19) -->
     <h4>Time Travel</h4>
     <ul class="timeline">
       <li v-for="t in timeline" :key="t.seq">
@@ -170,5 +186,9 @@ const jumpTo = (seq: number) => store.dispatch('debugger/jumpTo', seq);
   color: var(--primary);
   text-align: left;
   width: 100%;
+}
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 </style>

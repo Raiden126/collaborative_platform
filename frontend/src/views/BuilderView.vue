@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { VueFlow, useVueFlow, type Connection, type NodeDragEvent } from '@vue-flow/core';
+import { VueFlow, useVueFlow, type Connection, type NodeDragEvent, type EdgeRemoveChange } from '@vue-flow/core';
 import { Background } from '@vue-flow/background';
 import { Controls } from '@vue-flow/controls';
 import { MiniMap } from '@vue-flow/minimap';
@@ -24,17 +24,22 @@ import '@vue-flow/minimap/dist/style.css';
 
 const props = defineProps<{ id: string }>();
 const store = useStore();
-const workflowId = computed(() => Number(props.id));
+
+// Safe parse — Number('') and Number(undefined) are both NaN
+const workflowId = computed(() => {
+  const n = parseInt(props.id, 10);
+  if (isNaN(n)) console.error('[WorkflowBuilder] Invalid id prop:', props.id);
+  return n;
+});
 
 const nodeTypes = nodeTypeComponents();
-const { onConnect, onNodeDragStop, project, setNodes, setEdges, viewport, vueFlowRef } = useVueFlow();
+const { onConnect, onNodeDragStop, onEdgesChange, project, setNodes, setEdges, viewport, vueFlowRef } = useVueFlow();
 
 const meta = computed(() => store.state.workflow.meta);
 const canUndo = computed(() => store.getters['workflow/canUndo']);
 const canRedo = computed(() => store.getters['workflow/canRedo']);
 const rightPanel = ref<'inspector' | 'simulator' | 'versions'>('inspector');
 
-// --- Sync store graph -> Vue Flow (handles remote edits, undo/redo, time-travel) ---
 function syncFromStore() {
   const nodes: WorkflowNode[] = store.getters['nodes/all'];
   const connections: WorkflowConnection[] = store.getters['connections/all'];
@@ -56,7 +61,10 @@ watch(
 );
 
 onMounted(async () => {
-  await store.dispatch('workflow/open', workflowId.value);
+  if (!isNaN(workflowId.value)) {
+    await store.dispatch('workflow/open', workflowId.value);
+    // activeId is now set — SimulatorPanel's watcher will pick it up
+  }
   syncFromStore();
   window.addEventListener('keydown', onKey);
 });
@@ -65,7 +73,6 @@ onUnmounted(() => {
   window.removeEventListener('keydown', onKey);
 });
 
-// --- User interactions translated into events ---
 onNodeDragStop((e: NodeDragEvent) => {
   store.dispatch(
     'workflow/commitEvent',
@@ -82,6 +89,16 @@ onConnect((params: Connection) => {
     targetHandle: params.targetHandle ?? undefined,
   };
   store.dispatch('workflow/commitEvent', makeEvent('CONNECTION_ADDED', { connection }));
+});
+
+onEdgesChange((changes) => {
+  const removals = changes.filter((c): c is EdgeRemoveChange => c.type === 'remove');
+  for (const change of removals) {
+    store.dispatch(
+      'workflow/commitEvent',
+      makeEvent('CONNECTION_REMOVED', { connectionId: change.id }),
+    );
+  }
 });
 
 function addNodeAt(def: NodeDefinition, position: { x: number; y: number }) {
@@ -111,7 +128,6 @@ function onNodeClick(e: { node: { id: string } }) {
   store.commit('nodes/select', e.node.id);
 }
 
-// --- Cursor tracking (throttled) ---
 let lastCursor = 0;
 function onPaneMouseMove(e: MouseEvent) {
   const now = Date.now();
@@ -129,7 +145,6 @@ function cursorStyle(pos: { x: number; y: number }) {
   return { transform: `translate(${vp.x + pos.x * vp.zoom}px, ${vp.y + pos.y * vp.zoom}px)` };
 }
 
-// --- Keyboard: undo / redo (feature 9) ---
 function onKey(e: KeyboardEvent) {
   const mod = e.ctrlKey || e.metaKey;
   if (!mod) return;
@@ -146,16 +161,13 @@ async function publish() {
   await store.dispatch('workflow/publish', workflowId.value);
 }
 
-// --- Import / export ---
 const fileInput = ref<HTMLInputElement | null>(null);
-function pickFile() {
-  fileInput.value?.click();
-}
+function pickFile() { fileInput.value?.click(); }
 
 async function onImportFile(e: Event) {
   const input = e.target as HTMLInputElement;
   const file = input.files?.[0];
-  input.value = ''; // allow re-importing the same file
+  input.value = '';
   if (!file) return;
   try {
     const raw = JSON.parse(await file.text());
@@ -165,8 +177,6 @@ async function onImportFile(e: Event) {
     if (!nodes.length) {
       throw new Error(skipped.length ? `No known node types (skipped: ${skipped.join(', ')})` : 'No nodes found');
     }
-    // Drop each node/connection through the normal event pipeline so the import
-    // is persisted + broadcast to collaborators like any other edit.
     for (const node of nodes) {
       await store.dispatch('workflow/commitEvent', makeEvent('NODE_CREATED', { node }));
     }
@@ -212,17 +222,9 @@ function exportJson() {
       <div class="spacer" />
       <button :disabled="!canUndo" @click="store.dispatch('workflow/undo')" title="Ctrl+Z">↶ Undo</button>
       <button :disabled="!canRedo" @click="store.dispatch('workflow/redo')" title="Ctrl+Y">Redo ↷</button>
-      <button v-can="'workflow.edit'" title="Import nodes from a JSON file" @click="pickFile">
-        ⬆ Import
-      </button>
+      <button v-can="'workflow.edit'" title="Import nodes from a JSON file" @click="pickFile">⬆ Import</button>
       <button title="Export this workflow as JSON" @click="exportJson">⬇ Export</button>
-      <input
-        ref="fileInput"
-        type="file"
-        accept="application/json,.json"
-        class="hidden-file"
-        @change="onImportFile"
-      />
+      <input ref="fileInput" type="file" accept="application/json,.json" class="hidden-file" @change="onImportFile" />
       <PresenceBar />
       <button v-can="'workflow.publish'" class="btn-primary" @click="publish">Publish</button>
     </header>
@@ -231,18 +233,12 @@ function exportJson() {
       <NodePalette @add="onPaletteAdd" />
 
       <div class="canvas" @drop="onDrop" @dragover.prevent @mousemove="onPaneMouseMove">
-        <VueFlow
-          :node-types="nodeTypes"
-          :delete-key-code="null"
-          fit-view-on-init
-          @node-click="onNodeClick"
-        >
+        <VueFlow :node-types="nodeTypes" fit-view-on-init @node-click="onNodeClick">
           <Background pattern-color="#334155" :gap="16" />
           <Controls />
           <MiniMap />
         </VueFlow>
 
-        <!-- Live collaborator cursors (feature 5) -->
         <div class="cursor-layer">
           <div v-for="c in cursors" :key="c.userId" class="cursor" :style="cursorStyle(c.position)">
             <svg width="16" height="16" viewBox="0 0 16 16"><path :fill="c.color" d="M0 0l5 12 2-5 5-2z" /></svg>
@@ -266,69 +262,17 @@ function exportJson() {
 </template>
 
 <style scoped>
-.builder {
-  display: flex;
-  flex-direction: column;
-  height: calc(100vh - 0px);
-  margin: -1.25rem;
-}
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.6rem 1rem;
-  border-bottom: 1px solid var(--border);
-}
-.hidden-file {
-  display: none;
-}
-.stage {
-  flex: 1;
-  display: flex;
-  min-height: 0;
-}
-.canvas {
-  flex: 1;
-  position: relative;
-}
-.right {
-  display: flex;
-  flex-direction: column;
-  border-left: 1px solid var(--border);
-}
-.tabs {
-  display: flex;
-  border-bottom: 1px solid var(--border);
-}
-.tabs button {
-  flex: 1;
-  border-radius: 0;
-  background: var(--surface);
-}
-.tabs button.on {
-  background: var(--primary);
-}
-.cursor-layer {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-}
-.cursor {
-  position: absolute;
-  top: 0;
-  left: 0;
-  display: flex;
-  align-items: flex-start;
-  gap: 2px;
-}
-.cursor .name {
-  font-size: 0.65rem;
-  color: #fff;
-  padding: 1px 5px;
-  border-radius: 4px;
-}
-:deep(.vue-flow) {
-  background: var(--bg);
-}
+.builder { display: flex; flex-direction: column; height: calc(100vh - 0px); margin: -1.25rem; }
+.toolbar { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 1rem; border-bottom: 1px solid var(--border); }
+.hidden-file { display: none; }
+.stage { flex: 1; display: flex; min-height: 0; }
+.canvas { flex: 1; position: relative; }
+.right { display: flex; flex-direction: column; border-left: 1px solid var(--border); }
+.tabs { display: flex; border-bottom: 1px solid var(--border); }
+.tabs button { flex: 1; border-radius: 0; background: var(--surface); }
+.tabs button.on { background: var(--primary); }
+.cursor-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.cursor { position: absolute; top: 0; left: 0; display: flex; align-items: flex-start; gap: 2px; }
+.cursor .name { font-size: 0.65rem; color: #fff; padding: 1px 5px; border-radius: 4px; }
+:deep(.vue-flow) { background: var(--bg); }
 </style>

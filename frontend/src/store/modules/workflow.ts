@@ -70,6 +70,7 @@ export const workflow: Module<WorkflowState, RootState> = {
       s.ids = s.ids.filter((x) => x !== id);
     },
     setActive(s: WorkflowState, payload: { id: number; meta: WorkflowState['meta'] }) {
+       console.log('🔥 setActive called:', payload.id);
       s.activeId = payload.id;
       s.meta = payload.meta;
       s.past = [];
@@ -124,6 +125,7 @@ export const workflow: Module<WorkflowState, RootState> = {
 
     // Open a workflow into the canvas: hydrate normalized stores + join realtime room.
     async open({ commit, dispatch }: Ctx, id: number) {
+      console.log('OPEN WORKFLOW:', id);
       const w = await workflowsApi.get(id);
       commit('upsert', w);
       const graph = (w.graph as WorkflowGraph) ?? emptyGraph();

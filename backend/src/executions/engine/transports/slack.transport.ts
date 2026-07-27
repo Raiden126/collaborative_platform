@@ -63,7 +63,7 @@ class RealSlackTransport implements SlackTransport {
 }
 
 /** Safe mock — logs instead of sending, for dev environments */
-class MockSlackTransport implements SlackTransport {
+export class MockSlackTransport implements SlackTransport {
   async send(msg: SlackMessage): Promise<SlackSendResult> {
     console.log('[MockSlack] Would send to', msg.channel, ':', msg.text);
     return { ok: true, channel: msg.channel, ts: String(Date.now()) };

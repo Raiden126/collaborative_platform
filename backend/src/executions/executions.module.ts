@@ -22,6 +22,8 @@ import {
   createEmailTransport,
   createSmsTransport,
 } from './engine/transports';
+import { SlackExecutor } from './engine/slack.executor';
+import { createSlackTransport, SLACK_TRANSPORT } from './engine/transports/slack.transport';
 
 @Module({
   imports: [ActivityModule, RealtimeModule],
@@ -37,11 +39,17 @@ import {
     WebhookExecutor,
     EmailExecutor,
     SmsExecutor,
+    SlackExecutor,
     // Real HTTP for webhooks (overridable in tests).
     { provide: HTTP_FETCH, useValue: globalThis.fetch?.bind(globalThis) },
     // Real SMTP / Twilio when configured (env), safe mock otherwise.
     { provide: EMAIL_TRANSPORT, useFactory: createEmailTransport, inject: [ConfigService] },
     { provide: SMS_TRANSPORT, useFactory: createSmsTransport, inject: [ConfigService] },
+    {
+      provide: SLACK_TRANSPORT,
+      useFactory: createSlackTransport,
+      inject: [ConfigService],
+    },
   ],
 })
 export class ExecutionsModule {}
